@@ -6,6 +6,8 @@
 
 A texture atlas browser for World of Warcraft. Search every atlas the game knows, see what it looks like, and copy the name or the code to use it.
 
+![Searching for Horde, with large thumbnails and the detail drawer](docs/screenshots/gallery-horde.png)
+
 ## What it does
 
 - Searches atlas names and file paths as you type, with name matches ranked ahead of path matches.
@@ -15,6 +17,12 @@ A texture atlas browser for World of Warcraft. Search every atlas the game knows
 - Opens the whole texture file in a sheet view, with every atlas outlined, clickable and zoomable.
 - Keeps favorites and recent picks, and filters to tiling atlases or atlases the client no longer resolves.
 - Builds its look from art that ships with the game, so the window matches the client and falls back to flat widgets where a client lacks a piece.
+
+## Screenshots
+
+![Searching for Alliance, with the copy formats in the detail drawer](docs/screenshots/gallery-alliance.png)
+
+![The same search at the smallest thumbnail size](docs/screenshots/compact-grid.png)
 
 ## Supported clients
 
