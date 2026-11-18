@@ -1,0 +1,20 @@
+# OS and editor
+.DS_Store
+Thumbs.db
+.vscode/
+.cursor/
+
+# Python
+__pycache__/
+*.pyc
+
+# Data file backups the updater leaves behind
+*.lua.bak
+
+# Packaged builds
+*.zip
+*.7z
+
+# Local secrets
+.env
+*.local

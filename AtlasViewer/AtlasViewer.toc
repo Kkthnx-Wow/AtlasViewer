@@ -1,0 +1,50 @@
+## Interface: 120105, 11509, 11508, 20506, 20505, 38001, 40402, 50504, 50503, 16001
+## Title: |cffe8edf5Atlas|r|cffe8bc5cViewer|r
+## Notes: A clean, from-scratch texture atlas browser. Find atlas names fast. |n|n|cff5C8BCFDeveloper|cffffffff:|r |nJosh "|CFF7b8489Kkthnx|r" Russell|n|n|cff009cdePayPal|r|cffffffff:|r |n|cffffffffwww.paypal.me/KkthnxTV|r|n|n|cfff96854Patreon|r|cffffffff:|r |n|cffffffffwww.patreon.com/Kkthnx|r
+## Author: Josh "|CFF7b8489Kkthnx|r" Russell
+## Version: 2.0.0
+## IconTexture: Interface\AddOns\AtlasViewer\Textures\Icon
+## SavedVariables: AtlasViewerDB
+## X-Category: Development Tools
+## X-Curse-Project-ID: 
+
+## Category-enUS: Kkthnx's AddOns
+## Category-deDE: Kkthnx's AddOns
+## Category-esES: Kkthnx's AddOns
+## Category-esMX: Kkthnx's AddOns
+## Category-itIT: Kkthnx's AddOns
+## Category-frFR: Kkthnx's AddOns
+## Category-ptBR: Kkthnx's AddOns
+## Category-ruRU: Kkthnx's AddOns
+## Category-koKR: Kkthnx's AddOns
+## Category-zhCN: Kkthnx's AddOns
+## Category-zhTW: Kkthnx's AddOns
+
+# Core
+Core\Namespace.lua
+Core\Constants.lua
+Core\Database.lua
+Core\Widgets.lua
+Core\Grid.lua
+
+# Locales
+Locales\enUS.lua
+
+# Data (bundled texture->atlas map). One file per game type; the client loads only
+# the matching one. Regenerate any of them with update_atlas_data.py. Era and
+# Anniversary share the vanilla type. A game type with no data falls back to
+# reading the atlas list from the client (C_Texture.GetAtlasElements).
+Data\Data_Mainline.lua [AllowLoadGameType: mainline]
+Data\Data_Vanilla.lua [AllowLoadGameType: vanilla]
+Data\Data_Mists.lua [AllowLoadGameType: mists]
+# WoW Forever reports game type camelot (spelled as Blizzard's own TOCs spell it).
+Data\Data_Forever.lua [AllowLoadGameType camelot]
+
+# Modules (Window first, it creates the Viewer table the others extend)
+Modules\Window.lua
+Modules\Gallery.lua
+Modules\Detail.lua
+Modules\Sheet.lua
+
+# Boot
+Core\Init.lua
