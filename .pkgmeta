@@ -22,10 +22,11 @@ ignore:
     - tools
     - README.md
     - CHANGELOG.md
-    - LICENSE
+
+# LICENSE is not ignored, so the repo's own copy ships inside the addon folder.
+# license-output is left out on purpose. It asks CurseForge for a license text
+# and failed on the first dry run.
 
 manual-changelog:
     filename: CHANGELOG.md
     markup-type: markdown
-
-license-output: LICENSE.txt
