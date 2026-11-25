@@ -1,0 +1,74 @@
+# Packages AtlasViewer and publishes it to GitHub Releases and CurseForge.
+#
+# Pushing a tag releases. The tag name becomes the version, without a v:
+#
+#   git tag -a 2.0.1 -m "2.0.1"
+#   git push origin 2.0.1
+#
+# A tag containing "beta" uploads as a beta, "alpha" as an alpha, anything else
+# as a full release. The packager reads that from the tag itself.
+#
+# Running the workflow by hand (Actions, Release, Run workflow) does a dry run.
+# It runs the checks and builds the zip but uploads nothing, so the packaging
+# can be looked at without a release.
+#
+# One TOC lists every client's interface number. The packager reads them and
+# tags the single upload with each game version. The CurseForge project id comes
+# from ## X-Curse-Project-ID in the TOC.
+name: Release
+
+on:
+  push:
+    tags:
+      - "**"
+  workflow_dispatch:
+
+# The packager creates the GitHub release itself, which needs write access.
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Check, package and release
+    runs-on: ubuntu-latest
+
+    env:
+      # Added by hand under Settings, Secrets and variables, Actions.
+      CF_API_KEY: ${{ secrets.CF_API_KEY }}
+      # Provided by Actions automatically.
+      GITHUB_OAUTH: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - name: Clone project
+        uses: actions/checkout@v4
+        with:
+          # The packager walks back to the previous tag, a shallow clone has
+          # no history to walk.
+          fetch-depth: 0
+
+      # A broken build never reaches players. Every Lua file must parse,
+      # including the large generated data files, and the updater must compile.
+      - name: Syntax checks
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq lua5.1
+          find AtlasViewer -name '*.lua' -print0 | xargs -0 -n1 luac5.1 -p
+          python3 -m py_compile tools/update_atlas_data.py
+
+      - name: Package and release
+        if: github.event_name == 'push'
+        uses: BigWigsMods/packager@v2
+
+      # -d skips every upload, so this only proves the zip builds.
+      - name: Package only (dry run)
+        if: github.event_name == 'workflow_dispatch'
+        uses: BigWigsMods/packager@v2
+        with:
+          args: -d
+
+      - name: Keep the dry run zip
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: AtlasViewer-dry-run
+          path: .release/*.zip

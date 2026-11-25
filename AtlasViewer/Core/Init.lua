@@ -1,7 +1,20 @@
--- Boot: register the slash command and be a good citizen by hiding out of combat.
--- The dataset is built lazily on first open (see ns:EnsureData), so there's no
--- login-time work to do here.
-local _, ns = ...
+-- Boot: saved settings, the slash command, and hiding the window for combat.
+-- The dataset is built lazily on first open (see ns:EnsureData).
+local addonName, ns = ...
+
+-- Settings are tiny, so they load with the addon. Doing it here, not on first
+-- open, is what lets InitDB drop an old /av dump for people who never reopen
+-- the window. The large atlas index still waits for the first open.
+local function onAddonLoaded(event, name)
+	if name ~= addonName then
+		return
+	end
+	ns:UnregisterEvent(event, onAddonLoaded)
+	if not ns.settings then
+		ns:InitDB()
+	end
+end
+ns:RegisterEvent("ADDON_LOADED", onAddonLoaded)
 
 -- Close the window when entering combat; StartMoving/secure taint aside, it's
 -- just polite not to cover the screen mid-pull.

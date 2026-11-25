@@ -16,6 +16,7 @@ local _, _addon = ...
 	Pulled    : 2026-09-06
 --]]
 
+_addon.loadData = function()
 local AtlasInfo = {
 	["4554359"]={
 		["editmode-actionbar-highlight-nineslice-corner"]={16, 16, 0.03125, 0.53125, 0.285156, 0.347656, false, false, "1x"},
@@ -7108,6 +7109,8 @@ local AtlasInfo = {
 	}, -- Interface/WorldStateFrame/WorldStateCaptureBar
 }
 
-_addon.data = AtlasInfo
+return AtlasInfo
+end
+
 _addon.dataBuild = 69547
 _addon.dataExpansion = "Classic Era / Anniversary"

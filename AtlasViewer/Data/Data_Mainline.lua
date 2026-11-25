@@ -16,6 +16,7 @@ local _, _addon = ...
 	Pulled    : 2026-09-06
 --]]
 
+_addon.loadData = function()
 local AtlasInfo = {
 	["5426612"]={
 		["kiosk-BG"]={1920, 1080, 0.000488281, 0.937988, 0.000488281, 0.527832, false, false, "1x"},
@@ -22527,6 +22528,8 @@ local AtlasInfo = {
 	}, -- Interface/WorldStateFrame/WorldStateCaptureBar
 }
 
-_addon.data = AtlasInfo
+return AtlasInfo
+end
+
 _addon.dataBuild = 69587
 _addon.dataExpansion = "Mainline (Retail)"

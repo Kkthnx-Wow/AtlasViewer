@@ -18,3 +18,7 @@ __pycache__/
 # Local secrets
 .env
 *.local
+
+# Updater build-check cache and interrupted writes
+.atlas_web_cache.json
+*.lua.tmp

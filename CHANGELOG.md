@@ -3,6 +3,44 @@
 All notable changes to this project are documented here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/); versions use SemVer.
 
+## [2.0.1] - 2026-11-24
+
+### Fixed
+- The data files used `[AllowLoadGameType: mainline]` with a colon, a form no
+  other TOC uses. They now use the plain `[AllowLoadGameType mainline]`, and the
+  retail file excludes Forever, so each client parses only its own data.
+- A three-day-old `/av dump` is now cleared at login, not only when the window
+  opens, so it stops riding along in saved variables for people who rarely open it.
+- Sheet coordinates kept updating only over empty canvas. They now follow the
+  cursor over the outlined atlases too, and the poll stops once the cursor leaves.
+
+### Changed
+- The atlas table is built the first time the window opens instead of at login.
+  Data files now hand over a loader, and the addon drops it once used. Measured in
+  plain Lua 5.1, the Forever file holds about 3.3 MB at login instead of 5.9 MB,
+  with the same total once the window is open. The updater writes this shape.
+- Zooming the sheet repositions outlines without recolouring each one, and the
+  search text is read once per pass instead of once per outline.
+- Arrow-key and click selection no longer scan every result to find a position
+  they already know, and refresh the grid once instead of twice.
+- Button art lookups are remembered for the session instead of building a new
+  table on every hover and press.
+
+### Updater
+- Says who it is. Posing as curl now gets 403 from Townlong-Yak, an honest name gets 200.
+- At least 5 seconds between requests, no retries, and a 429 or 503 stops all web
+  work for the run.
+- Build checks are cached for 6 hours and repeated with `If-None-Match`, so back to
+  back runs send nothing. `--recheck` asks again.
+- No blind download when the latest build is unknown, and downloads over 32 MB are refused.
+- A data file is written in full before it replaces the old one.
+- Escaped backslashes in a client dump no longer turn into decimal escapes.
+- `update_atlas_data.cmd` prefers the `py` launcher and passes the exit code through.
+
+### Packaging
+- CurseForge project id in the TOC, a `.pkgmeta`, and a release workflow that runs
+  on a pushed tag. The updater and repo files stay out of the zip.
+
 ## [2.0.0] - 2026-11-18
 
 ### Changed

@@ -5,9 +5,9 @@ The client can look up one atlas by name but cannot list names, so the addon
 bundles a texture -> atlas map per game type (Data/*.lua). Two sources feed it.
 
   web     Townlong-Yak's per-build dump for every flavor. It can lag a fresh patch
-          by a day or two, and as of 2026-11-18 its download sits behind a browser
-          check this script does not bypass, so --check works but the download
-          does not. Use the client source below for real updates.
+          by a day or two, and on 2026-11-18 its download sat behind a browser
+          check this script does not bypass. --check works. Requests are paced,
+          cached and never retried, see UA below. Prefer the client source.
   client  The running game itself. In game, `/av dump` saves every atlas the
           client knows into the addon's saved variables. After logging out (or
           /reload) run this script with --from-client and it turns that save
@@ -23,6 +23,7 @@ Usage:
     python update_atlas_data.py --from-client PATH_TO/AtlasViewer.lua
     python update_atlas_data.py vanilla --vanilla-source anniversary
     python update_atlas_data.py --force          # rewrite even when already current
+    python update_atlas_data.py --check --recheck  # ignore the 6 hour build-check cache
 
 Era and Anniversary share the `vanilla` game type, so they share Data_Vanilla.lua;
 pick the upstream with --vanilla-source. Standard library only. The old data file
@@ -31,9 +32,13 @@ is kept as *.lua.bak, one generation back.
 import argparse
 import datetime
 import glob
+import json
 import os
+import random
 import re
 import sys
+import time
+import urllib.error
 import urllib.request
 
 # game type -> where its data comes from and where it goes.
@@ -54,11 +59,21 @@ TARGETS = {
                 "label": "WoW Forever", "project": 18},
 }
 
-# Townlong-Yak answers 402 to browser-like agents and serves plain CLI tools, so
-# the request poses as curl. Do not "fix" this to a browser string.
-UA = {"User-Agent": "curl/8.5.0"}
+# Townlong-Yak is a free community site, so this script behaves like a guest:
+#   - it says who it is. A named agent lets the site owner see and throttle it.
+#     Posing as curl got 403 on 2026-11-24, while this name got 200.
+#   - one request at a time, at least MIN_GAP seconds apart, never retried.
+#   - build checks are cached for CACHE_TTL and repeated with If-None-Match, so a
+#     second run inside that window sends nothing and a later one usually gets 304.
+#   - a 429 or 503 stops every remaining web request for this run.
+#   - the 2 MB download only happens when the site has a newer build than the disk.
+UA = {"User-Agent": "AtlasViewer-data-updater/2.1 (python-urllib)"}
+MIN_GAP = 5.0
+CACHE_TTL = 6 * 3600
+MAX_BYTES = 32 * 1024 * 1024
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+CACHE_FILE = os.path.join(HERE, ".atlas_web_cache.json")
 # Works from inside the addon folder, or from a repo where this sits in tools/ next
 # to the AtlasViewer addon folder.
 ADDON_DIR = HERE if os.path.exists(os.path.join(HERE, "AtlasViewer.toc")) else os.path.abspath(
@@ -70,34 +85,92 @@ def page_url(segment):
     return "https://www.townlong-yak.com/framexml/%s/Helix/AtlasInfo.lua" % segment
 
 
-def fetch(url, limit=None, retries=1, timeout=8):
-    last = None
-    for attempt in range(retries):
-        try:
-            req = urllib.request.Request(url, headers=UA)
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                return (resp.read(limit) if limit else resp.read()).decode("utf-8", "replace")
-        except OSError as exc:  # timeouts and HTTP errors are retried, then reported by the caller
-            last = exc
-    raise last
+class SiteBusy(OSError):
+    """The site asked us to back off (429 or 503)."""
+
+
+_last_request = 0.0
+
+
+def _wait_turn():
+    """Keep MIN_GAP seconds, plus a little jitter, between requests."""
+    global _last_request
+    if _last_request:
+        gap = time.monotonic() - _last_request
+        if gap < MIN_GAP:
+            time.sleep(MIN_GAP - gap + random.uniform(0, 1))
+    _last_request = time.monotonic()
+
+
+def fetch(url, limit=None, etag=None, timeout=15):
+    """One GET, never retried. Returns (text, etag), or (None, etag) on 304."""
+    _wait_turn()
+    headers = dict(UA)
+    if etag:
+        headers["If-None-Match"] = etag
+    try:
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            data = resp.read(limit or MAX_BYTES + 1)
+            if not limit and len(data) > MAX_BYTES:
+                raise OSError("response larger than %d MB, refusing it" % (MAX_BYTES // 1048576))
+            return data.decode("utf-8", "replace"), resp.headers.get("ETag")
+    except urllib.error.HTTPError as exc:
+        if exc.code == 304:
+            return None, etag
+        if exc.code in (429, 503):
+            wait = exc.headers.get("Retry-After") if exc.headers else None
+            raise SiteBusy("HTTP %d, the site asked to slow down%s" % (
+                exc.code, (", retry after %s s" % wait) if wait else ""))
+        raise
+
+
+def load_cache():
+    try:
+        with open(CACHE_FILE, encoding="utf-8") as handle:
+            data = json.load(handle)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def save_cache(cache):
+    try:
+        with open(CACHE_FILE, "w", encoding="utf-8") as handle:
+            json.dump(cache, handle, indent=1, sort_keys=True)
+    except OSError as exc:
+        print("  (could not save the build cache: %s)" % exc)
 
 
 SITE_DOWN = False  # set after the first failed request so the rest are skipped
+CACHE = None
 
 
-def web_build(segment):
+def web_build(segment, recheck=False):
     """Latest build Townlong-Yak has for a flavor, or None. It lives in the page title."""
-    global SITE_DOWN
+    global SITE_DOWN, CACHE
+    if CACHE is None:
+        CACHE = load_cache()
+    entry = CACHE.get(segment) or {}
+    if not recheck and entry.get("build") and time.time() - entry.get("checked", 0) < CACHE_TTL:
+        return entry["build"]
     if SITE_DOWN:
         return None
     try:
-        head = fetch(page_url(segment), limit=8192)
+        head, etag = fetch(page_url(segment), limit=8192, etag=entry.get("etag") if entry.get("build") else None)
     except OSError as exc:
         SITE_DOWN = True
-        print("  Townlong-Yak did not answer (%s), skipping the web checks." % exc)
+        print("  Townlong-Yak did not answer (%s), skipping the rest of the web work." % exc)
         return None
-    match = re.search(r"\(build\s+(\d+)\)", head)
-    return int(match.group(1)) if match else None
+    if head is None:  # 304, nothing changed since the cached check
+        build = entry.get("build")
+    else:
+        match = re.search(r"\(build\s+(\d+)\)", head)
+        build = int(match.group(1)) if match else None
+    if build:
+        CACHE[segment] = {"build": build, "etag": etag, "checked": int(time.time())}
+        save_cache(CACHE)
+    return build
 
 
 def current_build(target):
@@ -135,16 +208,28 @@ def write_data(name, target, body, build, source):
         "\tPulled    : %s\n"
         "--]]\n\n"
     ) % (target["out"], name, target["gametype"], source, build, datetime.date.today().isoformat())
-    out = "%s%s\n\n_addon.data = AtlasInfo\n_addon.dataBuild = %s\n_addon.dataExpansion = %s\n" % (
+    # The table sits inside a loader the addon calls on first open, so players who
+    # never open the window do not hold the built table in memory.
+    out = ("%s_addon.loadData = function()\n%s\n\nreturn AtlasInfo\nend\n\n"
+           "_addon.dataBuild = %s\n_addon.dataExpansion = %s\n") % (
         header, body, build, lua_string(target["label"]))
 
     dest = os.path.join(DATA_DIR, target["out"])
     os.makedirs(DATA_DIR, exist_ok=True)
+    # Write the new file in full first, so a failed write never leaves the addon
+    # without its data file.
+    tmp = dest + ".tmp"
+    try:
+        with open(tmp, "w", encoding="utf-8", newline="\n") as handle:
+            handle.write(out)
+    except OSError:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+        raise
     had_old = os.path.exists(dest)
     if had_old:
         os.replace(dest, dest + ".bak")
-    with open(dest, "w", encoding="utf-8", newline="\n") as handle:
-        handle.write(out)
+    os.replace(tmp, dest)
     print("  wrote Data/%s (%.1f MB)%s" % (target["out"], len(out) / 1048576,
                                          ", previous kept as .bak" if had_old else ""))
 
@@ -152,9 +237,9 @@ def write_data(name, target, body, build, source):
 # ---------------------------------------------------------------------------
 # web source
 # ---------------------------------------------------------------------------
-def update_from_web(name, target, segment, check_only, force):
+def update_from_web(name, target, segment, check_only, force, recheck):
     have = current_build(target)
-    latest = web_build(segment)
+    latest = web_build(segment, recheck)
     if not latest:
         status = "latest unknown"
     else:
@@ -162,13 +247,19 @@ def update_from_web(name, target, segment, check_only, force):
     print("%-9s have %s, latest %s -> %s" % (name, have or "none", latest or "?", status))
     if check_only:
         return True
+    if SITE_DOWN:
+        return False
+    if not latest and not force:
+        # Without a known build there is nothing to compare, so do not pull 2 MB blind.
+        print("  skipped, the latest build is unknown (--force downloads anyway)")
+        return False
     if not force and have and latest and have >= latest:
         return True
 
     page = page_url(segment)
     try:
-        raw = fetch(page + "/get")
-    except Exception as exc:
+        raw, _ = fetch(page + "/get")
+    except OSError as exc:
         print("  ERROR: could not download %s (%s)" % (page, exc))
         return False
     start, end = raw.find("local AtlasInfo"), raw.rfind("return AtlasInfo")
@@ -202,9 +293,19 @@ def find_saved_variables():
     return max(found, key=os.path.getmtime) if found else None
 
 
+ESCAPE = re.compile(r"\\(\d{1,3}|.)", re.S)
+SIMPLE_ESCAPES = {"n": "\n", "t": "\t", "r": "\r", "a": "\a", "b": "\b", "f": "\f", "v": "\v"}
+
+
 def unescape(text):
-    text = re.sub(r"\\(\d{1,3})", lambda m: chr(int(m.group(1))), text)
-    return text.replace('\\"', '"').replace("\\\\", "\\")
+    """Undo Lua string escapes in one pass, so an escaped backslash before a digit
+    stays a backslash instead of turning into a decimal escape."""
+    def one(match):
+        code = match.group(1)
+        if code.isdigit():
+            return chr(int(code))
+        return SIMPLE_ESCAPES.get(code, code)
+    return ESCAPE.sub(one, text)
 
 
 STRING = re.compile(r'\s*"((?:[^"\\]|\\.)*)"\s*,?')
@@ -314,6 +415,8 @@ def main():
     ap.add_argument("--check", action="store_true", help="report current vs latest build, change nothing")
     ap.add_argument("--web", action="store_true", help="download from Townlong-Yak (may be blocked)")
     ap.add_argument("--force", action="store_true", help="rewrite even when already current")
+    ap.add_argument("--recheck", action="store_true",
+                    help="ask the site again even if a build check is cached (still paced)")
     ap.add_argument("--from-client", nargs="?", const="auto", metavar="PATH",
                     help="build from the /av dump in saved variables (auto-finds the file)")
     ap.add_argument("--target", choices=list(TARGETS), help="game type for --from-client (default: auto)")
@@ -341,7 +444,7 @@ def main():
         for name in args.targets or list(TARGETS):
             target = TARGETS[name]
             segment = args.vanilla_source if name == "vanilla" else target["segment"]
-            ok = update_from_web(name, target, segment, args.check, args.force) and ok
+            ok = update_from_web(name, target, segment, args.check, args.force, args.recheck) and ok
 
     if not args.check:
         print("Done. /reload each client to pick up the new data." if ok else "Finished with errors, nothing was changed for the failed targets.")

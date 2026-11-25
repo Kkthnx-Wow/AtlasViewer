@@ -48,17 +48,28 @@ function Viewer:Select(name, skipRecent)
 	end
 	self:ShowDetail(name)
 	if self.Grid then
-		local idx = ns.atlasIndex[name]
-		if idx and self.results then
-			for p = 1, #self.results do
-				if self.results[p] == idx then
-					self.selPos = p
-					self.Grid:ScrollToPosition(p)
-					break
+		local idx, results = ns.atlasIndex[name], self.results
+		local pos
+		if idx and results then
+			-- Clicks and arrow keys already know the position. Only a pick from
+			-- elsewhere (the sheet) needs the scan through every result.
+			if self.selPos and results[self.selPos] == idx then
+				pos = self.selPos
+			else
+				for p = 1, #results do
+					if results[p] == idx then
+						pos = p
+						break
+					end
 				end
 			end
 		end
-		self.Grid:Refresh()
+		if pos then
+			self.selPos = pos
+			self.Grid:ScrollToPosition(pos) -- refreshes the grid
+		else
+			self.Grid:Refresh()
+		end
 	end
 	if self.mode == "sheet" then
 		local file = ns.entries[ns.atlasFile[name]].texture

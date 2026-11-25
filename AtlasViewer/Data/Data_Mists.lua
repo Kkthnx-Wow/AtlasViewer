@@ -16,6 +16,7 @@ local _, _addon = ...
 	Pulled    : 2026-09-06
 --]]
 
+_addon.loadData = function()
 local AtlasInfo = {
 	["4685926"]={
 		["shop-card-full-classicwotlk-goodies2"]={564, 459, 0.000976562, 0.551758, 0.000976562, 0.449219, false, false, "1x"},
@@ -7861,6 +7862,8 @@ local AtlasInfo = {
 	}, -- Interface/WorldStateFrame/WorldStateCaptureBar
 }
 
-_addon.data = AtlasInfo
+return AtlasInfo
+end
+
 _addon.dataBuild = 69383
 _addon.dataExpansion = "Mists of Pandaria Classic"

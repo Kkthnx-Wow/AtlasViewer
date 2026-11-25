@@ -181,8 +181,9 @@ function ns:DumpLive()
 	return #lines
 end
 
--- Build the file list (ns.entries) and the flat atlas index from ns.data, which a
--- Data file sets, or from the live client when this game type has no data.
+-- Build the file list (ns.entries) and the flat atlas index from the table a
+-- Data file's loader returns, or from the live client when this game type has
+-- no data.
 --   ns.entries[i]      = { texture, name, path, lowerPath, count }
 --   ns.atlasNames[i]   = atlas name, sorted
 --   ns.atlasLower[i]   = lowercased, space-free copy for matching
@@ -192,6 +193,15 @@ function ns:BuildAtlasList()
 	self.entries = {}
 	self.backup = {}
 	self.atlasNames, self.atlasLower, self.atlasFile, self.atlasIndex = {}, {}, {}, {}
+
+	-- Data files hand over a loader instead of a finished table. The table only
+	-- exists once someone opens the window, which keeps it out of login memory
+	-- (about 3.3 MB at login instead of 5.9 MB for the Forever file in a plain
+	-- Lua 5.1 measurement). Drop the loader after use so its code can be freed.
+	if self.data == nil and self.loadData then
+		self.data = self.loadData()
+		self.loadData = nil
+	end
 
 	local raw = self.data
 	local live = false

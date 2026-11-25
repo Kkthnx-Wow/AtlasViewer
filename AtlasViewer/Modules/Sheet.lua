@@ -39,6 +39,7 @@ function Viewer:AcquireOverlay()
 			PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
 		end)
 		o:SetScript("OnEnter", function(frame)
+			self:StartCoordsPoll()
 			GameTooltip:SetOwner(frame, "ANCHOR_RIGHT")
 			GameTooltip:SetText(frame.name, 1, 1, 1, 1, true)
 			GameTooltip:Show()
@@ -67,16 +68,27 @@ function Viewer:ReleaseOverlays()
 	end
 end
 
+-- The search text as the index stores names: lowercased, spaces removed.
+function Viewer:SearchNeedle()
+	if not self.SearchBox then
+		return ""
+	end
+	return (self.SearchBox:GetText():lower():gsub(" ", ""))
+end
+
 -- Selected wins, then search matches, then missing, then a faint default.
-function Viewer:ColorOverlay(o)
+-- needle comes from SearchNeedle, worked out once per pass, not once per outline.
+function Viewer:ColorOverlay(o, needle)
 	local color, alpha = Colors.text, 0.28
-	local needle = self.SearchBox and self.SearchBox:GetText():lower():gsub(" ", "") or ""
 	if o.name == self.selected then
 		color, alpha = Colors.accent, 1
 	elseif o.info.missing then
 		color, alpha = Colors.bad, 0.7
-	elseif needle ~= "" and o.name:lower():gsub(" ", ""):find(needle, 1, true) then
-		color, alpha = Colors.good, 0.9
+	elseif needle ~= "" then
+		local lower = ns.atlasLower[ns.atlasIndex[o.name] or 0]
+		if lower and lower:find(needle, 1, true) then
+			color, alpha = Colors.good, 0.9
+		end
 	end
 	o.Outline:SetColor(color, alpha)
 	o.Highlight:SetVertexColor(color[1], color[2], color[3])
@@ -89,13 +101,19 @@ function Viewer:PositionOverlay(o)
 	o:SetPoint("BOTTOMRIGHT", self.SheetChild, "TOPLEFT", info.rightTexCoord * w, -info.bottomTexCoord * h)
 end
 
-function Viewer:RefreshOverlays()
-	if not self.activeOverlays then
+-- positionOnly skips the recolour, for zoom steps where only the size changed.
+function Viewer:RefreshOverlays(positionOnly)
+	local active = self.activeOverlays
+	if not active then
 		return
 	end
-	for _, o in ipairs(self.activeOverlays) do
+	local needle = not positionOnly and self:SearchNeedle()
+	for i = 1, #active do
+		local o = active[i]
 		self:PositionOverlay(o)
-		self:ColorOverlay(o)
+		if needle then
+			self:ColorOverlay(o, needle)
+		end
 	end
 end
 
@@ -105,13 +123,14 @@ function Viewer:BuildOverlays()
 	if not names then
 		return
 	end
+	local needle = self:SearchNeedle()
 	for atlasName in pairs(names) do
 		local info = ns:GetAtlasInfo(atlasName)
 		if info and (not info.missing or ns.settings.showIssues) then
 			local o = self:AcquireOverlay()
 			o.name, o.info = atlasName, info
 			self:PositionOverlay(o)
-			self:ColorOverlay(o)
+			self:ColorOverlay(o, needle)
 			o:Show()
 		end
 	end
@@ -201,7 +220,7 @@ function Viewer:SetScale(scale)
 	self.SheetChild:SetSize(self.texWidth * scale, self.texHeight * scale)
 	self.ScaleSlider:SetValue(scale)
 	self.ScaleText:SetText(format("%d%%", math.floor(scale * 100 + 0.5)))
-	self:RefreshOverlays()
+	self:RefreshOverlays(true)
 end
 
 function Viewer:PanStart()
@@ -226,10 +245,11 @@ function Viewer:PanStop()
 	self.panning = false
 end
 
+-- Returns false once the cursor has left the viewport, which ends the poll.
 function Viewer:UpdateCoords()
 	local child = self.SheetChild
 	if not child:IsShown() or not self.SheetViewport:IsMouseOver() then
-		return
+		return false
 	end
 	local x, y = GetCursorPosition()
 	local scale = UIParent:GetEffectiveScale()
@@ -242,6 +262,24 @@ function Viewer:UpdateCoords()
 			Saturate((child:GetTop() - y) / h)
 		)
 	)
+	return true
+end
+
+-- Coordinates are display only, so poll just while the cursor is over the
+-- viewport. Overlays take the mouse from the canvas, so the canvas OnLeave
+-- cannot end the poll. The poll ends itself when the cursor leaves the viewport.
+function Viewer:StartCoordsPoll()
+	local canvas = self.SheetCanvas
+	if canvas:GetScript("OnUpdate") then
+		return
+	end
+	self.coordsPoll = self.coordsPoll or function()
+		if not self:UpdateCoords() then
+			canvas:SetScript("OnUpdate", nil)
+			self.Coords:SetText("")
+		end
+	end
+	canvas:SetScript("OnUpdate", self.coordsPoll)
 end
 
 -- ---------------------------------------------------------------------------
@@ -321,15 +359,8 @@ function Viewer:BuildSheet(main)
 	canvas:SetScript("OnMouseWheel", function(_, delta)
 		self:SetScale((self.scale or 1) + SCALE_STEP * delta * 3)
 	end)
-	-- Coordinates are display only, so poll just while the canvas is hovered.
-	canvas:SetScript("OnEnter", function(frame)
-		frame:SetScript("OnUpdate", function()
-			self:UpdateCoords()
-		end)
-	end)
-	canvas:SetScript("OnLeave", function(frame)
-		frame:SetScript("OnUpdate", nil)
-		self.Coords:SetText("")
+	canvas:SetScript("OnEnter", function()
+		self:StartCoordsPoll()
 	end)
 	canvas:SetScript("OnSizeChanged", function()
 		if self.sheetTexture and self.mode == "sheet" then

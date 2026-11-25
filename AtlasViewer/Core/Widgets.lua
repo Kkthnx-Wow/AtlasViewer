@@ -603,8 +603,17 @@ end
 -- through the live API first, and the caller falls back to flat widgets when a
 -- client does not have it.
 -- ---------------------------------------------------------------------------
+-- Buttons ask on every hover and press, and each GetAtlasInfo call builds a new
+-- table. The answer cannot change mid-session, so remember it. Bounded by the
+-- few dozen UI art names this file asks about.
+local atlasKnown = {}
 local function atlasExists(name)
-	return C_Texture.GetAtlasInfo(name) ~= nil
+	local known = atlasKnown[name]
+	if known == nil then
+		known = C_Texture.GetAtlasInfo(name) ~= nil
+		atlasKnown[name] = known
+	end
+	return known
 end
 F.AtlasExists = atlasExists
 

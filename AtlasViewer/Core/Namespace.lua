@@ -22,6 +22,7 @@ eventFrame:SetScript("OnEvent", function(_, event, ...)
 	if not list then
 		return
 	end
+	-- UnregisterEvent swaps in a new list, so this one never shrinks mid-loop.
 	for i = 1, #list do
 		list[i](event, ...)
 	end
@@ -36,4 +37,26 @@ function ns:RegisterEvent(event, callback)
 		eventFrame:RegisterEvent(event)
 	end
 	list[#list + 1] = callback
+end
+
+-- Drop one callback, and the event itself once nothing listens to it. Builds a
+-- new list rather than shrinking the old one, so a dispatch already looping
+-- over the old list still reaches every other listener.
+function ns:UnregisterEvent(event, callback)
+	local list = listeners[event]
+	if not list then
+		return
+	end
+	local kept = {}
+	for i = 1, #list do
+		if list[i] ~= callback then
+			kept[#kept + 1] = list[i]
+		end
+	end
+	if #kept == 0 then
+		listeners[event] = nil
+		eventFrame:UnregisterEvent(event)
+	else
+		listeners[event] = kept
+	end
 end
